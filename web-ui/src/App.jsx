@@ -1,7 +1,8 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { Header } from './components';
+import { Header, VoiceAssistant } from './components';
 import { SessionsList } from './pages/SessionsList';
+import { Settings } from './pages/Settings';
 import { Step1Input } from './steps/Step1Input';
 import { SessionLayout } from './layouts/SessionLayout';
 import { HomeLayout } from './layouts/HomeLayout';
@@ -20,6 +21,7 @@ function App() {
           <Route element={<HomeLayout />}>
               <Route path="/" element={<Step1Input />} />
               <Route path="/sessions" element={<SessionsList />} />
+              <Route path="/settings" element={<Settings />} />
           </Route>
 
           <Route path="/sessions/:sessionId/*" element={<SessionLayout />}>
@@ -31,6 +33,7 @@ function App() {
           </Route>
         </Routes>
       </div>
+      <VoiceAssistant />
     </div>
   );
 }

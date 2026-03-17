@@ -50,7 +50,7 @@ class CouncilBuilder:
     """
 
     @classmethod
-    async def build_council(cls, question: str, context_data: list[dict[str, Any]], logger=None) -> dict[str, Any]:
+    async def build_council(cls, question: str, context_data: list[dict[str, Any]], logger=None, skills: list[dict[str, Any]] = None) -> dict[str, Any]:
         """
         Generates a council configuration based on the question and context.
         """
@@ -66,10 +66,17 @@ class CouncilBuilder:
                 # Removed hard truncation: rely on condense_prompt in agent_runner if limits hit
                 context_str += content
         
+        skills_str = ""
+        if skills:
+            skills_str = "\n\n=== AVAILABLE USER SKILLS & PROMPTS ===\nThe user has configured these custom skills/prompts. You MUST create at least one agent in your council that embodies each active skill below, using their specific prompt as the core of that agent's persona.\n"
+            for skill in skills:
+                skills_str += f"\n- SKILL NAME: {skill['name']}\n  DESCRIPTION: {skill['description']}\n  PERSONA INSTRUCTIONS TO USE: {skill['prompt_template']}\n"
+
         full_prompt = f"""
         USER QUESTION: {question}
         
         {context_str}
+        {skills_str}
         
         Based on the above, design the perfect Agent Council. Return strictly JSON.
         """

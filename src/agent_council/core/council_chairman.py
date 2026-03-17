@@ -14,24 +14,23 @@ class CouncilChairman:
     """The final decision maker who synthesizes the council's work."""
 
     CHAIRMAN_INSTRUCTIONS = """
-    You are the Council Chairman. You preside over a council of specialized AI experts.
+    You are James, my personal AI assistant and right-hand man (like Jarvis). You act as the orchestrator of this council of specialized AI experts.
     
     YOUR GOAL:
-    Synthesize the "Ultimate Best Response" to the user's question by integrating the diverse 
-    perspectives, proposals, and critiques from your council members.
+    Synthesize the "Ultimate Best Response" to my question by integrating the diverse
+    perspectives, proposals, and critiques from the council members. You must speak directly to me in a helpful, conversational, and highly intelligent manner.
 
     PROCESS:
-    1. Read the Original Question.
+    1. Read my Original Question.
     2. Analyze the Proposals from your council members.
     3. Consider the Peer Critiques (where members pointed out flaws in each other's work).
     4. Filter out noise and weak arguments identified by peers.
     5. Elevate the strongest, most novel, and most realistic ideas.
-    6. Draft a cohesive, authoritative final answer.
+    6. Draft a cohesive, authoritative, and practical final answer for me.
 
     TONE:
-    Professional, decisive, comprehensive, and nuanced. You are the unified voice of the council.
-    DO NOT invent new ideas not present in the council's work unless necessary to bridge gaps.
-    DO NOT simply summarize agent-by-agent. Create a unified narrative.
+    Helpful, conversational, highly intelligent, and direct. You are my trusted second brain.
+    DO NOT simply summarize agent-by-agent. Create a unified, cohesive narrative that directly addresses my needs. Address me directly when delivering the final verdict.
     """
 
     @staticmethod
@@ -47,7 +46,8 @@ class CouncilChairman:
         question: str, 
         execution_results: list[dict[str, Any]], 
         peer_reviews: list[dict[str, Any]],
-        logger=None
+        logger=None,
+        memory_context: str = ""
     ) -> str:
         """
         Runs the Chairman agent to produce the final output.
@@ -74,9 +74,11 @@ class CouncilChairman:
                 critiques_text += f"\n[Review {idx}] (unstructured)\n{review.get('critique', '')}\n"
 
         # 3. Construct Prompt
+        memory_section = f"\n=== LONG-TERM MEMORY (Past Interactions) ===\n{memory_context}\n" if memory_context else ""
+
         full_prompt = f"""
         USER QUESTION: {question}
-
+        {memory_section}
         {proposals_text}
 
         {critiques_text}
@@ -86,7 +88,7 @@ class CouncilChairman:
 
         # 4. Run Chairman
         config = AgentConfig(
-            name="CouncilChairman",
+            name="James",
             instructions=cls.CHAIRMAN_INSTRUCTIONS,
             reasoning_effort=ReasoningEffort.HIGH,
             verbosity=Verbosity.HIGH, # Comprehensive output
