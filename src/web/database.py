@@ -75,6 +75,39 @@ class User(Base):
     
     # Relationship
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
+    settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    skills = relationship("Skill", back_populates="user", cascade="all, delete-orphan")
+
+
+class UserSettings(Base):
+    """User settings model for storing API keys and preferences."""
+    __tablename__ = "user_settings"
+
+    user_id = Column(String, ForeignKey("users.id"), primary_key=True)
+    openai_api_key = Column(String, nullable=True)
+    notion_token = Column(String, nullable=True)
+    google_drive_token = Column(String, nullable=True)
+
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="settings")
+
+
+class Skill(Base):
+    """Custom skills and prompts for the council."""
+    __tablename__ = "skills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    prompt_template = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="skills")
 
 
 class Session(Base):

@@ -33,7 +33,8 @@ class AgentCouncilService:
     async def build_council(
         question: str,
         ingested_data: list[dict[str, Any]],
-        logger: Optional[SessionLogger] = None
+        logger: Optional[SessionLogger] = None,
+        skills: Optional[list[dict[str, Any]]] = None
     ) -> dict[str, Any]:
         """
         Build a council configuration using the Architect agent.
@@ -42,11 +43,12 @@ class AgentCouncilService:
             question: The user's question/problem
             ingested_data: List of ingested context files
             logger: Optional session logger
+            skills: Optional list of active skills from the user's SkillsBank
             
         Returns:
             Council configuration dict
         """
-        return await CouncilBuilder.build_council(question, ingested_data, logger=logger)
+        return await CouncilBuilder.build_council(question, ingested_data, logger=logger, skills=skills)
     
     @staticmethod
     async def execute_council(
@@ -111,7 +113,8 @@ class AgentCouncilService:
         question: str,
         execution_results: list[dict[str, Any]],
         peer_reviews: list[dict[str, Any]],
-        logger: Optional[SessionLogger] = None
+        logger: Optional[SessionLogger] = None,
+        memory_context: str = ""
     ) -> str:
         """
         Generate Chairman's final verdict.
@@ -121,6 +124,7 @@ class AgentCouncilService:
             execution_results: Results from council execution
             peer_reviews: Results from peer review
             logger: Optional session logger
+            memory_context: Optional context from past sessions
             
         Returns:
             Final verdict as string
@@ -129,7 +133,8 @@ class AgentCouncilService:
             question,
             execution_results,
             peer_reviews,
-            logger=logger
+            logger=logger,
+            memory_context=memory_context
         )
     
     @staticmethod

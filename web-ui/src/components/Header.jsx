@@ -22,7 +22,10 @@ export const Header = () => {
               </div>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
+            <a href="/settings" className="text-gray-600 hover:text-primary-600 transition-colors text-sm font-medium">
+              Configurações & Skills
+            </a>
             <span className="px-3 py-1 text-xs font-semibold bg-primary-50 text-primary-700 rounded-full border border-primary-200">
               Beta
             </span>

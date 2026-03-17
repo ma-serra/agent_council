@@ -18,8 +18,9 @@ import httpx
 
 from agent_council.utils.session_logger import SessionLogger
 
-from .database import AsyncSessionLocal, User, get_db, init_db
+from .database import AsyncSessionLocal, User, UserSettings, Skill, get_db, init_db
 from .database import Session as DBSession
+from sqlalchemy import select
 from .db_service import SessionService, UserService
 from .services import AgentCouncilService
 from .session_manager import SessionManager
@@ -184,10 +185,31 @@ class TTSRequest(BaseModel):
     text: str
 
 
+class WebhookRequest(BaseModel):
+    question: str
+
+
 class CouncilConfig(BaseModel):
     council_name: Optional[str] = None
     strategy_summary: Optional[str] = None
     agents: list[dict]
+
+class UserSettingsUpdate(BaseModel):
+    openai_api_key: Optional[str] = None
+    notion_token: Optional[str] = None
+    google_drive_token: Optional[str] = None
+
+class SkillCreate(BaseModel):
+    name: str
+    description: str
+    prompt_template: str
+    is_active: bool = True
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    prompt_template: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class ErrorResponse(BaseModel):
@@ -348,6 +370,102 @@ async def text_to_speech(request: TTSRequest):
                 raise HTTPException(status_code=500, detail=str(e))
 
     return StreamingResponse(generate(), media_type="audio/mpeg")
+
+
+@app.post("/api/james_webhook")
+async def james_webhook(
+    request: WebhookRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Synchronous, all-in-one endpoint specifically for IDEs/Extensions (Trae, AntiGravity, Cursor, etc).
+    You send a simple JSON with a 'question' and James will do everything (Build, Execute, Review, Synthesize)
+    and return the final string.
+    """
+    import logging
+    logging.info(f"Webhook triggered with question: {request.question}")
+
+    # 1. Create Session
+    session_id = SessionManager.generate_session_id()
+    session_manager.ensure_session_directories(session_id)
+    created_at = datetime.now(timezone.utc)
+
+    await SessionService.create_session_metadata(db, session_id=session_id, user_id=current_user.id, question=request.question)
+    await SessionStateService.init_state(db, session_id=session_id, user_id=current_user.id, question=request.question, created_at=created_at)
+
+    # 2. Build Council
+    stmt = select(Skill).where(Skill.user_id == current_user.id, Skill.is_active == True)
+    result = await db.execute(stmt)
+    active_skills = [{"name": s.name, "description": s.description, "prompt_template": s.prompt_template} for s in result.scalars().all()]
+
+    logs_dir = Path("sessions") / session_id / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    logger = SessionLogger(output_dir=str(logs_dir))
+
+    council_config = await AgentCouncilService.build_council(request.question, [], logger=logger, skills=active_skills)
+
+    # 3. Execute Council
+    execution_results = await AgentCouncilService.execute_council(council_config, request.question, [], logger=logger)
+
+    # 4. Review
+    peer_reviews = await AgentCouncilService.run_peer_review(council_config, request.question, execution_results, logger=logger)
+
+    # 5. Synthesis (James)
+    memory_context = ""
+    recent_sessions = await SessionService.list_user_sessions(db, current_user.id, include_deleted=False)
+    completed_sessions = [s for s in recent_sessions if s.status == "verdict_complete" and s.id != session_id]
+    completed_sessions.sort(key=lambda x: x.created_at, reverse=True)
+    top_sessions = completed_sessions[:3]
+
+    if top_sessions:
+        memory_texts = []
+        for s in top_sessions:
+            s_state = await read_state_primary(s.id, db, current_user.id)
+            if s_state and s_state.get("chairman_verdict"):
+                q = s_state.get("question", "")
+                ans = s_state.get("chairman_verdict", "")
+                memory_texts.append(f"Q: {q}\nJames' Answer: {ans[:500]}...")
+        if memory_texts:
+            memory_context = "Here are the previous things we discussed:\n" + "\n---\n".join(memory_texts)
+
+    # Add a fallback in case memory throws an error in some environments
+    final_verdict = await AgentCouncilService.synthesize_verdict(
+        request.question, execution_results, peer_reviews, logger=logger, memory_context=memory_context
+    )
+
+    tokens = logger.get_cost_breakdown()
+
+    # Update DB with final state so it shows up in UI later if wanted
+    await write_state_primary(
+        session_id,
+        {
+            "question": request.question,
+            "council_config": council_config,
+            "execution_results": {"execution_results": execution_results},
+            "peer_reviews": peer_reviews,
+            "chairman_verdict": final_verdict,
+            "status": "verdict_complete",
+            "current_step": "complete",
+            "tokens": tokens
+        },
+        db=db,
+        user_id=current_user.id
+    )
+
+    await SessionService.update_session_metadata(db, session_id, {
+        "status": "verdict_complete",
+        "current_step": "complete",
+        "last_cost_usd": tokens.get("total_cost_usd"),
+        "last_total_tokens": tokens.get("total_tokens")
+    })
+    await db.commit()
+
+    return {
+        "verdict": final_verdict,
+        "session_id": session_id,
+        "tts_url": f"/api/tts?text={final_verdict}" # Simplified reference for IDEs that want to trigger TTS
+    }
 
 
 @app.post("/api/sessions")
@@ -515,11 +633,20 @@ async def build_council(
         logs_dir = Path("sessions") / session_id / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         logger = SessionLogger(output_dir=str(logs_dir))
+
+        # Fetch active skills
+        stmt = select(Skill).where(Skill.user_id == current_user.id, Skill.is_active == True)
+        result = await db.execute(stmt)
+        active_skills = [
+            {"name": s.name, "description": s.description, "prompt_template": s.prompt_template}
+            for s in result.scalars().all()
+        ]
         
         council_config = await AgentCouncilService.build_council(
             question,
             ingested_data,
-            logger=logger
+            logger=logger,
+            skills=active_skills
         )
         
         # Update state (DB primary, file fallback)
@@ -1174,12 +1301,34 @@ async def synthesize(
         logs_dir = Path("sessions") / session_id / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         logger = SessionLogger(output_dir=str(logs_dir))
-        
+
+        # Build Long-Term Memory context
+        # We fetch the last 3 completed sessions for this user
+        memory_context = ""
+        recent_sessions = await SessionService.list_user_sessions(db, current_user.id, include_deleted=False)
+        # Filter for completed sessions, sort by date descending, take top 3
+        completed_sessions = [s for s in recent_sessions if s.status == "verdict_complete" and s.id != session_id]
+        completed_sessions.sort(key=lambda x: x.created_at, reverse=True)
+        top_sessions = completed_sessions[:3]
+
+        if top_sessions:
+            memory_texts = []
+            for s in top_sessions:
+                s_state = await read_state_primary(s.id, db, current_user.id)
+                if s_state and s_state.get("chairman_verdict"):
+                    q = s_state.get("question", "")
+                    ans = s_state.get("chairman_verdict", "")
+                    memory_texts.append(f"Q: {q}\nJames' Answer: {ans[:500]}...") # truncate answer
+
+            if memory_texts:
+                memory_context = "Here are the previous things we discussed:\n" + "\n---\n".join(memory_texts)
+
         final_verdict = await AgentCouncilService.synthesize_verdict(
             question,
             execution_results,
             peer_reviews,
-            logger=logger
+            logger=logger,
+            memory_context=memory_context
         )
         
         # Finalize logger
@@ -1265,6 +1414,115 @@ async def get_summary(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/settings")
+async def get_settings(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get current user settings."""
+    stmt = select(UserSettings).where(UserSettings.user_id == current_user.id)
+    result = await db.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if not settings:
+        settings = UserSettings(user_id=current_user.id)
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+    return {
+        "openai_api_key": settings.openai_api_key,
+        "notion_token": settings.notion_token,
+        "google_drive_token": settings.google_drive_token,
+    }
+
+@app.put("/api/settings")
+async def update_settings(updates: UserSettingsUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Update current user settings."""
+    stmt = select(UserSettings).where(UserSettings.user_id == current_user.id)
+    result = await db.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if not settings:
+        settings = UserSettings(user_id=current_user.id)
+        db.add(settings)
+
+    if updates.openai_api_key is not None:
+        settings.openai_api_key = updates.openai_api_key
+    if updates.notion_token is not None:
+        settings.notion_token = updates.notion_token
+    if updates.google_drive_token is not None:
+        settings.google_drive_token = updates.google_drive_token
+
+    await db.commit()
+    return {"status": "success", "message": "Settings updated"}
+
+@app.get("/api/skills")
+async def list_skills(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """List all skills for the current user."""
+    stmt = select(Skill).where(Skill.user_id == current_user.id)
+    result = await db.execute(stmt)
+    skills = result.scalars().all()
+    return {"skills": [
+        {
+            "id": s.id,
+            "name": s.name,
+            "description": s.description,
+            "prompt_template": s.prompt_template,
+            "is_active": s.is_active,
+        } for s in skills
+    ]}
+
+@app.post("/api/skills")
+async def create_skill(skill_in: SkillCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Create a new skill."""
+    skill = Skill(
+        user_id=current_user.id,
+        name=skill_in.name,
+        description=skill_in.description,
+        prompt_template=skill_in.prompt_template,
+        is_active=skill_in.is_active
+    )
+    db.add(skill)
+    await db.commit()
+    await db.refresh(skill)
+    return {
+        "id": skill.id,
+        "name": skill.name,
+        "description": skill.description,
+        "prompt_template": skill.prompt_template,
+        "is_active": skill.is_active,
+    }
+
+@app.put("/api/skills/{skill_id}")
+async def update_skill(skill_id: int, updates: SkillUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Update an existing skill."""
+    stmt = select(Skill).where(Skill.id == skill_id, Skill.user_id == current_user.id)
+    result = await db.execute(stmt)
+    skill = result.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    if updates.name is not None:
+        skill.name = updates.name
+    if updates.description is not None:
+        skill.description = updates.description
+    if updates.prompt_template is not None:
+        skill.prompt_template = updates.prompt_template
+    if updates.is_active is not None:
+        skill.is_active = updates.is_active
+
+    await db.commit()
+    return {"status": "success"}
+
+@app.delete("/api/skills/{skill_id}")
+async def delete_skill(skill_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Delete a skill."""
+    stmt = select(Skill).where(Skill.id == skill_id, Skill.user_id == current_user.id)
+    result = await db.execute(stmt)
+    skill = result.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    await db.delete(skill)
+    await db.commit()
+    return {"status": "success"}
 
 
 @app.get("/api/sessions")

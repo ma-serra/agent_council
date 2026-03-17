@@ -46,7 +46,8 @@ class CouncilChairman:
         question: str, 
         execution_results: list[dict[str, Any]], 
         peer_reviews: list[dict[str, Any]],
-        logger=None
+        logger=None,
+        memory_context: str = ""
     ) -> str:
         """
         Runs the Chairman agent to produce the final output.
@@ -73,9 +74,11 @@ class CouncilChairman:
                 critiques_text += f"\n[Review {idx}] (unstructured)\n{review.get('critique', '')}\n"
 
         # 3. Construct Prompt
+        memory_section = f"\n=== LONG-TERM MEMORY (Past Interactions) ===\n{memory_context}\n" if memory_context else ""
+
         full_prompt = f"""
         USER QUESTION: {question}
-
+        {memory_section}
         {proposals_text}
 
         {critiques_text}

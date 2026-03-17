@@ -31,6 +31,38 @@ export const agentCouncilAPI = {
     return response.data;
   },
 
+  // Settings
+  async getSettings() {
+    const response = await api.get('/api/settings');
+    return response.data;
+  },
+
+  async updateSettings(settings) {
+    const response = await api.put('/api/settings', settings);
+    return response.data;
+  },
+
+  // Skills
+  async getSkills() {
+    const response = await api.get('/api/skills');
+    return response.data;
+  },
+
+  async createSkill(skill) {
+    const response = await api.post('/api/skills', skill);
+    return response.data;
+  },
+
+  async updateSkill(skillId, skill) {
+    const response = await api.put(`/api/skills/${skillId}`, skill);
+    return response.data;
+  },
+
+  async deleteSkill(skillId) {
+    const response = await api.delete(`/api/skills/${skillId}`);
+    return response.data;
+  },
+
   async listSessions() {
     const response = await api.get('/api/sessions');
     return response.data;
