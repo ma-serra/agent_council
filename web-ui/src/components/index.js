@@ -4,3 +4,4 @@ export { Stepper } from './Stepper';
 export { Header } from './Header';
 export { SessionSidebar } from './SessionSidebar';
 export { UserSessionsSidebar } from './UserSessionsSidebar';
+export { VoiceAssistant } from './VoiceAssistant';

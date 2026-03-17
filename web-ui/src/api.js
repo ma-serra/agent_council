@@ -108,6 +108,10 @@ export const agentCouncilAPI = {
     });
     return response.data;
   },
+
+  getTTSUrl() {
+    return `${API_BASE_URL}/api/tts`;
+  }
 };
 
 export default api;

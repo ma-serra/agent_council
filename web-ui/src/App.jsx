@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { Header } from './components';
+import { Header, VoiceAssistant } from './components';
 import { SessionsList } from './pages/SessionsList';
 import { Step1Input } from './steps/Step1Input';
 import { SessionLayout } from './layouts/SessionLayout';
@@ -31,6 +31,7 @@ function App() {
           </Route>
         </Routes>
       </div>
+      <VoiceAssistant />
     </div>
   );
 }

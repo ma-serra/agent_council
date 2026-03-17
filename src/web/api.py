@@ -11,8 +11,10 @@ from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
 
 from agent_council.utils.session_logger import SessionLogger
 
@@ -178,6 +180,10 @@ class SessionCreate(BaseModel):
     question: str
 
 
+class TTSRequest(BaseModel):
+    text: str
+
+
 class CouncilConfig(BaseModel):
     council_name: Optional[str] = None
     strategy_summary: Optional[str] = None
@@ -305,6 +311,43 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.post("/api/tts")
+async def text_to_speech(request: TTSRequest):
+    """
+    Generate Text-to-Speech using OpenAI's TTS API.
+    Voice: onyx (a deep, professional male voice suitable for James).
+    """
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+
+    url = "https://api.openai.com/v1/audio/speech"
+    headers = {
+        "Authorization": f"Bearer {openai_api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "tts-1",
+        "input": request.text,
+        "voice": "onyx",
+        "response_format": "mp3"
+    }
+
+    async def generate():
+        async with httpx.AsyncClient() as client:
+            try:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=e.response.status_code, detail=f"OpenAI TTS API error: {e.response.text}")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+    return StreamingResponse(generate(), media_type="audio/mpeg")
 
 
 @app.post("/api/sessions")
