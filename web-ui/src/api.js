@@ -47,11 +47,13 @@ export const agentCouncilAPI = {
   },
 
   // Council building
-  async buildCouncil(sessionId, force = false) {
+  async buildCouncil(sessionId, force = false, template = null) {
+    const params = { force };
+    if (template) params.template = template;
     const response = await api.post(
       `/api/sessions/${sessionId}/build_council`,
       null,
-      { params: { force } }
+      { params }
     );
     return response.data;
   },

@@ -5,37 +5,41 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { agentCouncilAPI } from '../api';
 
+const TEMPLATE_OPTIONS = [
+  { value: '', label: 'Gerar automaticamente (IA)' },
+  { value: 'TI', label: 'TI — Arquiteto, Segurança, PM, DevOps, QA' },
+  { value: 'DIREITO', label: 'Direito — Tributário, Trabalhista, Empresarial, Constitucional, Defesa' },
+  { value: 'PETICAO', label: 'Petição — Redação, Jurisprudência, Contraditório, Revisão, Processual' },
+];
+
 export const Step2Build = () => {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { sessionData, refreshSession } = useOutletContext();
-  
+
   const [loading, setLoading] = useState(false);
   const [councilConfig, setCouncilConfig] = useState(null);
   const [error, setError] = useState(null);
-  
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+
   useEffect(() => {
     // Check if council already exists in session data
     if (sessionData?.council_config) {
       setCouncilConfig(sessionData.council_config);
-    } else if (sessionId && !loading && !councilConfig) {
-      // Only build if we don't have a config yet
-      buildCouncil();
     }
-  }, [sessionData, sessionId]);
-  
+  }, [sessionData]);
+
   const buildCouncil = async (force = false) => {
     try {
       setLoading(true);
       setError(null);
-      
-      const config = await agentCouncilAPI.buildCouncil(sessionId, force);
-      
+
+      const config = await agentCouncilAPI.buildCouncil(sessionId, force, selectedTemplate || null);
+
       if (config.error) {
         setError(config.error);
       } else {
         setCouncilConfig(config);
-        // Refresh session data to update sidebar
         await refreshSession();
       }
     } catch (err) {
@@ -54,10 +58,12 @@ export const Step2Build = () => {
           <div className="text-center py-12">
             <Loader2 className="h-16 w-16 text-primary-600 animate-spin mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Designing your council
+              {selectedTemplate ? `Carregando conselho de ${selectedTemplate}...` : 'Designing your council'}
             </h3>
             <p className="text-gray-600">
-              The Architect is analyzing your question and context files to propose a set of specialized agents...
+              {selectedTemplate
+                ? 'Usando template pré-definido — sem chamada LLM.'
+                : 'The Architect is analyzing your question and context files to propose a set of specialized agents...'}
             </p>
           </div>
         </Card>
@@ -88,6 +94,42 @@ export const Step2Build = () => {
     );
   }
   
+  // No council yet — show template selector
+  if (!councilConfig) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <Card>
+          <div className="py-8 px-4">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Montar o Conselho</h2>
+            <p className="text-gray-600 mb-6">Escolha um template pré-definido ou deixe a IA montar automaticamente.</p>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Conselho</label>
+              <select
+                value={selectedTemplate}
+                onChange={(e) => setSelectedTemplate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                {TEMPLATE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {selectedTemplate && (
+                <p className="mt-2 text-xs text-green-700 bg-green-50 px-3 py-1 rounded">
+                  Template instantâneo — sem custo de LLM
+                </p>
+              )}
+            </div>
+
+            <Button onClick={() => buildCouncil(false)} disabled={loading}>
+              {selectedTemplate ? `Usar template ${selectedTemplate}` : 'Gerar com IA'}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
       <div className="mb-8 flex items-start justify-between gap-4">

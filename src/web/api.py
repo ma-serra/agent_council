@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_council.core.council_templates import get_template, list_templates
 from agent_council.utils.session_logger import SessionLogger
 
 from .database import AsyncSessionLocal, User, get_db, init_db
@@ -409,10 +410,17 @@ async def create_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/council-templates")
+async def get_council_templates():
+    """List all available pre-defined council templates."""
+    return {"templates": list_templates()}
+
+
 @app.post("/api/sessions/{session_id}/build_council")
 async def build_council(
     session_id: str,
     force: bool = False,
+    template: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -467,20 +475,30 @@ async def build_council(
         
         question = state["question"]
         ingested_data = state.get("ingested_data", [])
-        
-        # Create logger (no DB access)
-        logs_dir = Path("sessions") / session_id / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        logger = SessionLogger(output_dir=str(logs_dir))
-        
-        council_config = await AgentCouncilService.build_council(
-            question,
-            ingested_data,
-            logger=logger
-        )
+
+        # Use pre-defined template if provided (skips LLM call)
+        if template:
+            council_config = get_template(template)
+            if not council_config:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Template '{template}' not found. Available: TI, DIREITO, PETICAO"
+                )
+            logger = None
+        else:
+            # Create logger (no DB access)
+            logs_dir = Path("sessions") / session_id / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            logger = SessionLogger(output_dir=str(logs_dir))
+
+            council_config = await AgentCouncilService.build_council(
+                question,
+                ingested_data,
+                logger=logger
+            )
         
         # Update state (DB primary, file fallback)
-        tokens = logger.get_cost_breakdown()
+        tokens = logger.get_cost_breakdown() if logger else {}
         await write_state_primary(
             session_id,
             {
