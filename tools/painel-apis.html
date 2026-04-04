@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de APIs — Escritório</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --text: #e2e8f0;
+    --muted: #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* PIN SCREEN */
+  #pin-screen {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 1000; gap: 24px;
+  }
+  #pin-screen h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: 0.05em; color: var(--text); }
+  #pin-screen p { color: var(--muted); font-size: 0.85rem; }
+  .pin-dots { display: flex; gap: 12px; margin: 8px 0; }
+  .pin-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--border); background: transparent;
+    transition: all 0.15s;
+  }
+  .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+  .pin-dot.error { background: var(--red); border-color: var(--red); }
+  .keypad { display: grid; grid-template-columns: repeat(3, 64px); gap: 10px; }
+  .key {
+    height: 56px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 1.1rem; font-weight: 600;
+    cursor: pointer; transition: all 0.1s;
+  }
+  .key:hover { background: #252838; border-color: var(--accent); }
+  .key:active { transform: scale(0.95); }
+  .key.del { font-size: 0.85rem; color: var(--muted); }
+  #pin-error { color: var(--red); font-size: 0.8rem; height: 16px; }
+  #set-pin-hint { color: var(--muted); font-size: 0.8rem; text-align: center; max-width: 220px; }
+
+  /* MAIN APP */
+  #app { display: none; padding: 20px; max-width: 1200px; margin: 0 auto; }
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }
+  .top-bar h1 { font-size: 1.1rem; font-weight: 700; }
+  .top-bar span { color: var(--muted); font-size: 0.8rem; }
+  .btn-lock {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.8rem;
+  }
+  .btn-lock:hover { border-color: var(--accent); color: var(--text); }
+
+  /* GRID */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+
+  /* API CARD */
+  .api-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .card-header { display: flex; align-items: center; justify-content: space-between; }
+  .card-title { font-weight: 700; font-size: 0.95rem; }
+  .card-desc { color: var(--muted); font-size: 0.78rem; }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--border);
+    flex-shrink: 0; transition: background 0.3s;
+  }
+  .status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.fail { background: var(--red); }
+  .status-dot.loading { background: var(--yellow); animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
+
+  .field-group { display: flex; flex-direction: column; gap: 4px; }
+  .field-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .field-row { display: flex; gap: 6px; }
+  .field-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 10px; border-radius: 8px; font-size: 0.82rem; font-family: monospace;
+  }
+  .field-input:focus { outline: none; border-color: var(--accent); }
+  .btn-eye {
+    background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+    padding: 0 10px; border-radius: 8px; cursor: pointer; font-size: 0.75rem;
+  }
+  .btn-test {
+    background: var(--accent); border: none; color: white;
+    padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 0.82rem; font-weight: 600;
+    transition: opacity 0.15s;
+  }
+  .btn-test:hover { opacity: 0.85; }
+  .btn-test:disabled { opacity: 0.4; cursor: default; }
+  .btn-save {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 9px 12px; border-radius: 9px; cursor: pointer; font-size: 0.78rem;
+  }
+  .btn-save:hover { border-color: var(--green); color: var(--green); }
+  .card-actions { display: flex; gap: 8px; }
+  .result-box {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; font-family: monospace; font-size: 0.75rem; color: var(--muted);
+    max-height: 120px; overflow-y: auto; white-space: pre-wrap; display: none;
+  }
+  .result-box.visible { display: block; }
+  .result-ok { color: var(--green); }
+  .result-fail { color: var(--red); }
+
+  /* ADD CARD */
+  .add-card {
+    background: transparent; border: 2px dashed var(--border);
+    border-radius: 14px; padding: 18px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    cursor: pointer; transition: all 0.2s; min-height: 180px;
+  }
+  .add-card:hover { border-color: var(--accent); background: #1a1d2740; }
+  .add-card span { color: var(--muted); font-size: 0.85rem; }
+  .add-card .plus { font-size: 2rem; color: var(--border); }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0; background: #00000099;
+    display: none; align-items: center; justify-content: center; z-index: 500;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px; width: 400px; max-width: 95vw; display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal h2 { font-size: 1rem; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .btn-cancel {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 8px 16px; border-radius: 8px; cursor: pointer;
+  }
+  .btn-confirm {
+    background: var(--accent); border: none; color: white;
+    padding: 8px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<!-- PIN SCREEN -->
+<div id="pin-screen">
+  <h1>🔐 Painel de APIs</h1>
+  <p id="set-pin-hint">Digite um PIN de 4 dígitos para configurar</p>
+  <div class="pin-dots" id="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div id="pin-error"></div>
+  <div class="keypad" id="keypad">
+    <button class="key" onclick="pinKey('1')">1</button>
+    <button class="key" onclick="pinKey('2')">2</button>
+    <button class="key" onclick="pinKey('3')">3</button>
+    <button class="key" onclick="pinKey('4')">4</button>
+    <button class="key" onclick="pinKey('5')">5</button>
+    <button class="key" onclick="pinKey('6')">6</button>
+    <button class="key" onclick="pinKey('7')">7</button>
+    <button class="key" onclick="pinKey('8')">8</button>
+    <button class="key" onclick="pinKey('9')">9</button>
+    <button class="key del" onclick="pinDel()">⌫</button>
+    <button class="key" onclick="pinKey('0')">0</button>
+    <button class="key del" onclick="pinClear()">C</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div class="top-bar">
+    <div>
+      <h1>Painel de APIs Jurídicas</h1>
+      <span>Escritório · Conexões e testes</span>
+    </div>
+    <button class="btn-lock" onclick="lock()">🔒 Bloquear</button>
+  </div>
+  <div class="grid" id="api-grid">
+    <!-- Cards gerados via JS -->
+  </div>
+</div>
+
+<!-- MODAL NOVA API -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>Nova API</h2>
+    <div class="field-group">
+      <div class="field-label">Nome</div>
+      <input class="field-input" id="m-name" placeholder="ex: TJSP Consulta">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Descrição</div>
+      <input class="field-input" id="m-desc" placeholder="ex: Consulta processual TJSP">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Endpoint (URL)</div>
+      <input class="field-input" id="m-url" placeholder="https://...">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Método</div>
+      <select class="field-input" id="m-method">
+        <option>GET</option><option>POST</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Tipo de Auth</div>
+      <select class="field-input" id="m-auth">
+        <option value="none">Sem autenticação</option>
+        <option value="bearer">Bearer Token</option>
+        <option value="apikey_header">API Key (header)</option>
+        <option value="basic">Basic Auth (user:senha)</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Credencial (token / key / user:senha)</div>
+      <input class="field-input" id="m-key" placeholder="sk-... ou user:senha">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+      <button class="btn-confirm" onclick="saveNewApi()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────── PIN ───────────────────────────
+const STORE = 'painel_apis_v1';
+const PIN_KEY = 'painel_pin';
+let pinBuffer = '';
+let pinMode = 'verify'; // 'set' | 'verify'
+
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STORE)) || { apis: [] }; }
+  catch { return { apis: [] }; }
+}
+function saveState(s) { localStorage.setItem(STORE, JSON.stringify(s)); }
+
+function initPin() {
+  const saved = localStorage.getItem(PIN_KEY);
+  if (!saved) {
+    pinMode = 'set';
+    document.getElementById('set-pin-hint').textContent = 'Crie um PIN de 4 dígitos';
+  } else {
+    pinMode = 'verify';
+    document.getElementById('set-pin-hint').textContent = 'Digite seu PIN';
+  }
+}
+
+function pinKey(k) {
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += k;
+  updateDots();
+  if (pinBuffer.length === 4) setTimeout(checkPin, 120);
+}
+
+function pinDel() {
+  pinBuffer = pinBuffer.slice(0, -1);
+  updateDots();
+}
+
+function pinClear() {
+  pinBuffer = '';
+  updateDots();
+  document.getElementById('pin-error').textContent = '';
+}
+
+function updateDots(state) {
+  for (let i = 0; i < 4; i++) {
+    const d = document.getElementById('d' + i);
+    d.className = 'pin-dot';
+    if (state === 'error') d.classList.add('error');
+    else if (i < pinBuffer.length) d.classList.add('filled');
+  }
+}
+
+function checkPin() {
+  if (pinMode === 'set') {
+    localStorage.setItem(PIN_KEY, btoa(pinBuffer));
+    unlock();
+  } else {
+    const saved = atob(localStorage.getItem(PIN_KEY));
+    if (pinBuffer === saved) {
+      unlock();
+    } else {
+      updateDots('error');
+      document.getElementById('pin-error').textContent = 'PIN incorreto';
+      setTimeout(() => { pinBuffer = ''; updateDots(); document.getElementById('pin-error').textContent = ''; }, 800);
+    }
+  }
+}
+
+function unlock() {
+  document.getElementById('pin-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  renderGrid();
+}
+
+function lock() {
+  pinBuffer = '';
+  updateDots();
+  document.getElementById('pin-error').textContent = '';
+  pinMode = 'verify';
+  document.getElementById('set-pin-hint').textContent = 'Digite seu PIN';
+  document.getElementById('pin-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+// ─────────────────────────── APIS DEFAULT ───────────────────────────
+const DEFAULT_APIS = [
+  {
+    id: 'datajud',
+    name: 'CNJ DataJud',
+    desc: 'Consulta processual nacional — API aberta do CNJ',
+    url: 'https://api-publica.datajud.cnj.jus.br/api_publica_tjsp/_search',
+    method: 'POST',
+    auth: 'apikey_header',
+    headerName: 'Authorization',
+    key: '',
+    testBody: JSON.stringify({"query":{"match_all":{}},"size":1})
+  },
+  {
+    id: 'tjsp',
+    name: 'TJSP e-SAJ',
+    desc: 'Consulta pública TJSP — sem autenticação',
+    url: 'https://esaj.tjsp.jus.br/cposg/open.do',
+    method: 'GET',
+    auth: 'none',
+    key: ''
+  },
+  {
+    id: 'escavador',
+    name: 'Escavador',
+    desc: 'Monitoramento processual e jurisprudência',
+    url: 'https://api.escavador.com/api/v1/monitoramentos',
+    method: 'GET',
+    auth: 'bearer',
+    key: ''
+  },
+  {
+    id: 'stj',
+    name: 'STJ Jurisprudência',
+    desc: 'API pública de jurisprudência do STJ',
+    url: 'https://scon.stj.jus.br/SCON/jurisprudencia/doc.jsp',
+    method: 'GET',
+    auth: 'none',
+    key: ''
+  },
+  {
+    id: 'stf',
+    name: 'STF Jurisprudência',
+    desc: 'Pesquisa jurisprudencial do STF',
+    url: 'https://jurisprudencia.stf.jus.br/api/search/search',
+    method: 'GET',
+    auth: 'none',
+    key: ''
+  },
+  {
+    id: 'trt',
+    name: 'TRT PJe Trabalhista',
+    desc: 'Consulta via PJe — Tribunal Regional do Trabalho',
+    url: 'https://pje.trt2.jus.br/pje/ConsultaPublica/listView.seam',
+    method: 'GET',
+    auth: 'none',
+    key: ''
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    desc: 'Verifica conexão e validade da chave OpenAI',
+    url: 'https://api.openai.com/v1/models',
+    method: 'GET',
+    auth: 'bearer',
+    key: ''
+  },
+  {
+    id: 'council',
+    name: 'Agent Council (local)',
+    desc: 'API local do Agent Council na porta 8000',
+    url: 'http://localhost:8000/',
+    method: 'GET',
+    auth: 'none',
+    key: ''
+  },
+  {
+    id: 'juridoc',
+    name: 'JuriDoc (local)',
+    desc: 'API local do JuriDoc na porta 5000',
+    url: 'http://localhost:5000/health',
+    method: 'GET',
+    auth: 'none',
+    key: ''
+  }
+];
+
+// ─────────────────────────── RENDER ───────────────────────────
+function getApis() {
+  const state = loadState();
+  // Merge defaults with saved keys
+  const saved = {};
+  state.apis.forEach(a => { saved[a.id] = a; });
+
+  // Include defaults not yet overridden
+  const all = [...DEFAULT_APIS.map(d => saved[d.id] ? {...d, key: saved[d.id].key} : d)];
+  // Add custom APIs
+  state.apis.filter(a => !DEFAULT_APIS.find(d => d.id === a.id)).forEach(a => all.push(a));
+  return all;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('api-grid');
+  const apis = getApis();
+  grid.innerHTML = '';
+  apis.forEach(api => grid.appendChild(makeCard(api)));
+
+  // Add card
+  const add = document.createElement('div');
+  add.className = 'add-card';
+  add.innerHTML = '<div class="plus">+</div><span>Adicionar API</span>';
+  add.onclick = openModal;
+  grid.appendChild(add);
+}
+
+function makeCard(api) {
+  const card = document.createElement('div');
+  card.className = 'api-card';
+  card.id = 'card-' + api.id;
+
+  const needsKey = api.auth !== 'none';
+  const keyPlaceholder = api.auth === 'basic' ? 'usuario:senha' : api.auth === 'bearer' ? 'sk-...' : 'chave';
+
+  card.innerHTML = `
+    <div class="card-header">
+      <div>
+        <div class="card-title">${api.name}</div>
+        <div class="card-desc">${api.desc}</div>
+      </div>
+      <div class="status-dot" id="dot-${api.id}"></div>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Endpoint</div>
+      <input class="field-input" id="url-${api.id}" value="${api.url}" placeholder="https://...">
+    </div>
+    ${needsKey ? `
+    <div class="field-group">
+      <div class="field-label">Credencial</div>
+      <div class="field-row">
+        <input class="field-input" id="key-${api.id}" type="password" value="${api.key || ''}" placeholder="${keyPlaceholder}">
+        <button class="btn-eye" onclick="toggleKey('${api.id}')">👁</button>
+      </div>
+    </div>` : ''}
+    <div class="card-actions">
+      <button class="btn-test" onclick="testApi('${api.id}')">Testar</button>
+      <button class="btn-save" onclick="saveKey('${api.id}')">Salvar</button>
+      ${!DEFAULT_APIS.find(d => d.id === api.id) ? `<button class="btn-save" style="color:var(--red);border-color:var(--red)" onclick="deleteApi('${api.id}')">✕</button>` : ''}
+    </div>
+    <div class="result-box" id="res-${api.id}"></div>
+  `;
+  return card;
+}
+
+function toggleKey(id) {
+  const el = document.getElementById('key-' + id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function saveKey(id) {
+  const state = loadState();
+  const key = document.getElementById('key-' + id)?.value || '';
+  const url = document.getElementById('url-' + id)?.value || '';
+  let existing = state.apis.find(a => a.id === id);
+  if (existing) { existing.key = key; existing.url = url; }
+  else {
+    const api = getApis().find(a => a.id === id);
+    state.apis.push({...api, key, url});
+  }
+  saveState(state);
+  showResult(id, '✓ Salvo', 'ok');
+}
+
+function deleteApi(id) {
+  const state = loadState();
+  state.apis = state.apis.filter(a => a.id !== id);
+  saveState(state);
+  renderGrid();
+}
+
+// ─────────────────────────── TEST ───────────────────────────
+async function testApi(id) {
+  const api = getApis().find(a => a.id === id);
+  const url = document.getElementById('url-' + id)?.value || api.url;
+  const key = document.getElementById('key-' + id)?.value || api.key || '';
+  const dot = document.getElementById('dot-' + id);
+  const btn = document.querySelector(`#card-${id} .btn-test`);
+
+  dot.className = 'status-dot loading';
+  btn.disabled = true;
+  showResult(id, 'Testando...', '');
+
+  const headers = { 'Accept': 'application/json' };
+  if (api.auth === 'bearer') headers['Authorization'] = `Bearer ${key}`;
+  if (api.auth === 'apikey_header') headers['Authorization'] = `APIKey ${key}`;
+  if (api.auth === 'basic') {
+    headers['Authorization'] = `Basic ${btoa(key)}`;
+  }
+
+  try {
+    const opts = { method: api.method || 'GET', headers, mode: 'cors' };
+    if (api.method === 'POST' && api.testBody) {
+      opts.body = api.testBody;
+      headers['Content-Type'] = 'application/json';
+    }
+    const res = await fetch(url, opts);
+    const text = await res.text().catch(() => '');
+    let preview = '';
+    try { preview = JSON.stringify(JSON.parse(text), null, 2).slice(0, 400); }
+    catch { preview = text.slice(0, 400); }
+
+    if (res.ok || res.status < 500) {
+      dot.className = 'status-dot ok';
+      showResult(id, `HTTP ${res.status} ✓\n${preview}`, 'ok');
+    } else {
+      dot.className = 'status-dot fail';
+      showResult(id, `HTTP ${res.status} ✗\n${preview}`, 'fail');
+    }
+  } catch (e) {
+    dot.className = 'status-dot fail';
+    if (e.message.includes('CORS') || e.message.includes('fetch')) {
+      showResult(id, `⚠ CORS bloqueado ou offline\n${e.message}\n\nDica: use proxy ou teste via curl/Postman`, 'fail');
+    } else {
+      showResult(id, `✗ Erro: ${e.message}`, 'fail');
+    }
+  }
+  btn.disabled = false;
+}
+
+function showResult(id, text, cls) {
+  const el = document.getElementById('res-' + id);
+  el.className = 'result-box visible' + (cls ? ' result-' + cls : '');
+  el.textContent = text;
+}
+
+// ─────────────────────────── MODAL ───────────────────────────
+function openModal() { document.getElementById('modal').classList.add('open'); }
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+function saveNewApi() {
+  const name = document.getElementById('m-name').value.trim();
+  const url = document.getElementById('m-url').value.trim();
+  if (!name || !url) { alert('Nome e URL são obrigatórios.'); return; }
+
+  const newApi = {
+    id: 'custom_' + Date.now(),
+    name,
+    desc: document.getElementById('m-desc').value.trim(),
+    url,
+    method: document.getElementById('m-method').value,
+    auth: document.getElementById('m-auth').value,
+    key: document.getElementById('m-key').value.trim()
+  };
+
+  const state = loadState();
+  state.apis.push(newApi);
+  saveState(state);
+  closeModal();
+  renderGrid();
+
+  ['m-name','m-desc','m-url','m-key'].forEach(id => document.getElementById(id).value = '');
+}
+
+// ─────────────────────────── INIT ───────────────────────────
+initPin();
+</script>
+</body>
+</html>
